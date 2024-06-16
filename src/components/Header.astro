@@ -1,0 +1,21 @@
+---
+import { NavLink } from "./NavLink.tsx";
+
+const props = {
+  home: { href: "/", title: "Home" },
+  history: { href: "/history", title: "History" },
+  models: { href: "/models", title: "Models" },
+  settings: { href: "/settings", title: "Settings" },
+};
+---
+
+<header class="pt-4">
+  <ul
+    class="flex text-white gap-10 justify-center bg-slate-900 w-max mx-auto p-4 rounded-lg px-8"
+  >
+    <NavLink {...props["home"]} client:load />
+    <NavLink {...props["history"]} client:load />
+    <NavLink {...props["models"]} client:load />
+    <NavLink {...props["settings"]} client:load />
+  </ul>
+</header>
