@@ -14,7 +14,6 @@ export const NavLink: FC<Props> = ({ title, href }: Props) => {
   );
 
   const [currentHover, setCurrentHover] = useState<string>("");
-
   return (
     <motion.li
       onMouseEnter={() => {
@@ -27,24 +26,17 @@ export const NavLink: FC<Props> = ({ title, href }: Props) => {
     >
       <motion.a href={href}>{title}</motion.a>
 
-      {href === path || currentHover === href ? (
+      {(href === path || currentHover === href) && (
         <AnimatePresence>
           <motion.span
+            id="yxyx"
             animate={{
               x: [-10, -5, 0, 2.5, 0],
               opacity: [0, 0.5, 0.7, 0.9, 1],
             }}
-            className={clsx("h-0.5 rounded-lg w-full bg-white", {
-              hidden: !currentHover,
-            })}
+            className={clsx("h-0.5 rounded-lg w-full bg-white", {})}
           />
         </AnimatePresence>
-      ) : (
-        <span
-          className={clsx("h-0.5 rounded-lg w-full bg-white", {
-            hidden: !!currentHover,
-          })}
-        />
       )}
     </motion.li>
   );
