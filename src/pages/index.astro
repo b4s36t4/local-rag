@@ -1,25 +1,25 @@
 ---
 import Layout from "../layouts/Layout.astro";
 import { RenderMessageList } from "../components/RenderMessageList.tsx";
-import { prebuiltAppConfig } from "@mlc-ai/web-llm";
-
-console.log(prebuiltAppConfig.model_list, "models");
 ---
 
 <Layout title="ChatLLM">
   <div
     class="mx-[10%] max-h-[calc(100vh-150px)] mt-10 border-2 flex flex-col rounded-md border-slate-300"
   >
-    <RenderMessageList client:load />
+    <RenderMessageList client:idle />
 
-    <div class="flex flex-col min-h-[80px] m-2 relative">
-      <p
-        class="bg-red-100 p-1 text-sm border-gray-700 border-2 border-b-0 rounded-tr-lg rounded-tl-lg"
-      >
-        Model Selected:
-      </p>
+    <div class="flex flex-col m-2 relative">
       <div
-        class="flex border-b-2 border-l-2 border-r-2 overflow-scroll border-gray-700 rounded-br-lg rounded-bl-lg"
+        class="flex bg-red-100 p-1 controlled-border border-2 border-b-0 rounded-tr-lg rounded-tl-lg"
+      >
+        <p class="text-sm">
+          Model Selected: <span class="font-bold" id="selectedModel"></span>
+        </p>
+        <button id="loadOrDownload" class="ml-4 p-0 m-0 text-blue-600"></button>
+      </div>
+      <div
+        class="flex border-b-2 border-l-2 border-r-2 overflow-scroll controlled-border rounded-br-lg rounded-bl-lg"
       >
         <textarea
           placeholder="Enter Message"
@@ -36,19 +36,240 @@ console.log(prebuiltAppConfig.model_list, "models");
   </div>
 </Layout>
 
+<style>
+  #statusTooltip {
+    width: max-content;
+    position: absolute;
+    top: 0;
+    left: 0;
+    background: #222;
+    color: white;
+    font-weight: bold;
+    padding: 5px;
+    border-radius: 4px;
+    font-size: 90%;
+  }
+
+  :root {
+    --input-border-color: rgb(55 65 81 / var(--tw-border-opacity));
+  }
+
+  .controlled-border {
+    border-color: var(--input-border-color);
+  }
+
+  .shiki {
+    @apply overflow-x-auto rounded-lg p-4;
+  }
+</style>
+
 <script>
+  import {
+    hasModelInCache,
+    prebuiltAppConfig,
+    CreateMLCEngine,
+    MLCEngine,
+    type InitProgressCallback,
+    type ChatCompletionMessageParam,
+  } from "@mlc-ai/web-llm";
+  import { chatStore, newMessageStore } from "../store/chat";
+  import { modelStore } from "../store/modelStore";
+
+  import { toCompletionMessage } from "../utils/message";
+
+  let model: MLCEngine;
+
+  window.MODEL_LOADED = false;
+
+  const { pushMessage } = chatStore.getState();
+
+  // Updateable Text fields
+  const modelText = document.getElementById("selectedModel");
+  const modelStatus = document.getElementById("loadOrDownload");
+
+  const sendButton = document.getElementById("sendChat");
   const input = document.getElementById("promptInput") as HTMLInputElement;
 
-  const pseduoInput = document.createElement("div");
+  let selectedModel = null;
 
-  pseduoInput.style.visibility = "hidden";
+  if (!modelStore.getState().selectedModel) {
+    // Get the model which requires the least ram, so trying is easy
+    selectedModel = prebuiltAppConfig.model_list.sort().at(-1);
 
-  window.document.body.appendChild(pseduoInput);
+    // selectedModel!.overrides = {
+    //   sliding_window_size: 1024,
+    //   temperature: 0.5,
+    //   top_p: 0.3,
+    //   attention_sink_size: 4,
+    //   frequency_penalty: 0.3,
+    //   presence_penalty: 0.5,
+    //   repetition_penalty: 0.2,
+    // };
 
-  input?.addEventListener("input", function () {
-    const textValue = this.value;
-    pseduoInput.innerHTML = textValue;
+    modelStore.setState({ selectedModel: selectedModel });
+  } else {
+    selectedModel = modelStore.getState().selectedModel;
+  }
 
-    console.log(pseduoInput.clientHeight, "heigh");
-  });
+  selectedModel!.overrides = {
+    sliding_window_size: 1024,
+    temperature: 0.5,
+    top_p: 0.3,
+    attention_sink_size: 4,
+    frequency_penalty: 0.3,
+    presence_penalty: 0.5,
+    repetition_penalty: 0.2,
+    context_window_size: -1,
+  };
+  // Check weather the model is already downloaded
+  const isSelectedModelAvailable = await hasModelInCache(
+    selectedModel?.model_id ?? "",
+    prebuiltAppConfig
+  );
+
+  const checkForGPU = async () => {
+    const isGPUAvailable = "gpu" in window.navigator;
+    const isGPUAdapoterAvailable =
+      isGPUAvailable && (await (window.navigator as any).gpu.requestAdapter());
+    if (!isGPUAvailable || !isGPUAdapoterAvailable) {
+      sendButton!.textContent = "Not available";
+      modelStatus!.innerHTML = "Unavailable";
+      return false;
+    }
+
+    return true;
+  };
+
+  // Disable send button while model loading
+  const disableSend = () => {
+    if (sendButton) {
+      sendButton.setAttribute("disabled", "true");
+      sendButton.textContent = "Loading...";
+      console.log("Helo", sendButton);
+    }
+  };
+
+  // enable send button when mode is loaded
+  const enableSend = () => {
+    if (sendButton) {
+      sendButton.removeAttribute("disabled");
+      sendButton.textContent = "Send";
+    }
+  };
+
+  // Callback to handle the progress event
+  const handleProgress: InitProgressCallback = function (report) {
+    if (report.progress === 1) {
+      enableSend();
+      modelStatus!.innerText = "Loaded";
+      return;
+    }
+    const progress = Math.round(report.progress * 100);
+    if (modelStatus) {
+      modelStatus.innerText = `${progress}% of 100%`;
+    }
+  };
+
+  const startModel = async function () {
+    if (window.MODEL_LOADED) {
+      return;
+    }
+    model = await CreateMLCEngine(
+      selectedModel?.model_id ?? "",
+      {
+        logLevel: "DEBUG",
+        initProgressCallback: handleProgress,
+        appConfig: prebuiltAppConfig,
+      },
+      {
+        sliding_window_size: 512,
+        context_window_size: -1,
+        temperature: 0.5,
+        attention_sink_size: 4,
+      }
+    );
+
+    window.MODEL_LOADED = true;
+  };
+
+  const loadModel = async () => {
+    modelStatus!.addEventListener("click", async function (event) {
+      event.preventDefault();
+      disableSend();
+
+      startModel();
+    });
+
+    const resetInputText = async () => {
+      input.value = "";
+    };
+
+    sendButton?.addEventListener("click", async function () {
+      const question = input.value;
+      if (question.trim().length === 0) {
+        alert("Please ask what you want?!");
+        return;
+      }
+      if (!window.MODEL_LOADED) {
+        disableSend();
+        await startModel();
+        window.MODEL_LOADED = true;
+      }
+      pushMessage(toCompletionMessage(question));
+      resetInputText();
+      const output = await model.chat.completions.create({
+        messages: chatStore.getState().messages,
+        n: 1,
+        stream_options: { include_usage: true },
+        stream: true,
+        // max_tokens: 512,
+        frequency_penalty: 1,
+        seed: 10000,
+        temperature: 0.2,
+      });
+
+      const message: ChatCompletionMessageParam = {
+        content: "",
+        role: "assistant",
+      };
+
+      newMessageStore.setState({ generating: true });
+
+      for await (const chunk of output) {
+        if (
+          chunk.choices.length === 0 ||
+          chunk.choices[0]?.finish_reason === "stop"
+        ) {
+          break;
+        }
+
+        const chunkMessage = chunk.choices[0].delta.content;
+        if (!chunkMessage) {
+          break;
+        }
+        message["content"]! += chunkMessage;
+
+        newMessageStore.setState({ message: message["content"] ?? "" });
+
+        // Indicating that generation has stopped
+      }
+
+      pushMessage(message);
+
+      newMessageStore.setState({ generating: false, message: "" });
+    });
+  };
+
+  if (modelText) {
+    modelText.innerText = selectedModel?.model_id ?? "";
+  }
+
+  if (modelStatus && (await checkForGPU())) {
+    modelStatus.innerText = isSelectedModelAvailable ? "Load" : "Download";
+    modelStatus.title = isSelectedModelAvailable
+      ? "Load the model to start LLM"
+      : "Download the model and start LLM";
+
+    loadModel();
+  }
 </script>
