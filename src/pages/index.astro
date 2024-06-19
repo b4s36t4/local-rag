@@ -75,7 +75,10 @@ import { RenderMessageList } from "../components/RenderMessageList.tsx";
   import { chatStore, newMessageStore } from "../store/chat";
   import { modelStore } from "../store/modelStore";
 
-  import { toCompletionMessage } from "../utils/message";
+  import {
+    toCompletionMessage,
+    summarizeSystemMessage,
+  } from "../utils/message";
 
   let model: MLCEngine;
 
@@ -215,10 +218,37 @@ import { RenderMessageList } from "../components/RenderMessageList.tsx";
         await startModel();
         window.MODEL_LOADED = true;
       }
-      pushMessage(toCompletionMessage(question));
+      const questionMessage = toCompletionMessage(question);
+      pushMessage(questionMessage);
       resetInputText();
+
+      let memory: ChatCompletionMessageParam[] = [];
+      const previousMessages = chatStore.getState().messages;
+      if (previousMessages.length > 4) {
+        const summarizedMessage = await summarizeSystemMessage(
+          chatStore
+            .getState()
+            .messages.slice(0, chatStore.getState().messages.length - 1),
+          model
+        );
+
+        if (summarizedMessage.length === 0) {
+          return;
+        }
+
+        console.log(summarizedMessage, "message");
+
+        memory.push({
+          role: "system",
+          content: `Given our previous conversation context as summorized ${summarizedMessage[0].message.content}, answer the upcoming questions keeping the context in mind. If you find the context not useful ignore the context and answer your own for the questions asked. \n\n User: `,
+        });
+        memory.push(questionMessage);
+      } else {
+        memory.push(...chatStore.getState().messages);
+      }
+
       const output = await model.chat.completions.create({
-        messages: chatStore.getState().messages,
+        messages: [...memory],
         n: 1,
         stream_options: { include_usage: true },
         stream: true,

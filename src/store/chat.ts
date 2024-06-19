@@ -24,3 +24,7 @@ export const chatStore = createStore<ChatStore>((set, get) => ({
     }));
   },
 }));
+
+export const summarizationStore = createStore<{ summarizing: boolean }>(() => ({
+  summarizing: false,
+}));
