@@ -3,6 +3,7 @@ import {
   type NewMessageStore,
   chatStore,
   newMessageStore,
+  summarizationStore,
 } from "../store/chat";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChatCompletionMessageParam } from "@mlc-ai/web-llm";
@@ -11,7 +12,9 @@ import markdownIt from "markdown-it";
 import Shiki from "@shikijs/markdown-it";
 
 const markdown = markdownIt();
-markdown.use(await Shiki({ theme: "vitesse-dark" }));
+markdown.use(
+  await Shiki({ theme: "vitesse-dark", fallbackLanguage: "javascript" })
+);
 
 export const AIMessage = ({
   message,
@@ -30,11 +33,11 @@ export const AIMessage = ({
   }, [message.content]);
 
   return (
-    <div className="max-w-[50%] my-0.5 mr-auto py-3 pl-2 pr-6 bg-gray-300 rounded-md">
+    <div className="max-w-[50%] my-2 mr-auto py-3 pl-2 pr-6 bg-gray-300 rounded-md">
       <div className="flex flex-col">
         <p className="mr-auto text-sm font-bold">AI:</p>
         <div
-          className="prose 2xl:prose-xl prose-slate prose-code:whitespace-normal"
+          className="prose 2xl:prose-xl prose-slate prose-code:whitespace-pre-wrap"
           dangerouslySetInnerHTML={{
             __html: sanitizedMarkdownHTML ?? (message.content as string),
           }}
@@ -55,12 +58,12 @@ export const HumanMessage = ({
     );
   }, []);
   return (
-    <div className="max-w-[50%] my-0.5 ml-auto py-3 pl-2 pr-6 bg-gray-300 rounded-md">
+    <div className="max-w-[50%] my-2 ml-auto py-3 pl-2 pr-6 bg-gray-300 rounded-md">
       <div className="flex flex-col">
         <p className="ml-auto text-sm font-bold">You:</p>
         <article
           dangerouslySetInnerHTML={{ __html: parsed }}
-          className="prose 2xl:prose-xl prose-slate prose-code:whitespace-normal"
+          className="prose 2xl:prose-xl prose-slate prose-code:whitespace-pre-wrap"
         ></article>
       </div>
     </div>
@@ -74,11 +77,14 @@ export const RenderMessageList = () => {
     message: "",
   });
 
+  const [summarizing, setSummarizing] = useState(false);
+
   const messageContainerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     chatStore.subscribe((store, prevStore) => {
       setMessages(store.messages);
+      console.log(store.messages.at(-1), "final message");
       messageContainerRef.current?.scrollTo({
         left: 0,
         top: messageContainerRef.current?.scrollHeight ?? 500,
@@ -94,6 +100,10 @@ export const RenderMessageList = () => {
         top: messageContainerRef.current?.scrollHeight ?? 500,
         behavior: "auto",
       });
+    });
+
+    summarizationStore.subscribe((store) => {
+      setSummarizing(store.summarizing);
     });
   }, []);
 
@@ -119,6 +129,15 @@ export const RenderMessageList = () => {
         {currentMessage.generating && (
           <AIMessage
             message={{ role: "assistant", content: currentMessage.message }}
+          />
+        )}
+
+        {summarizing && (
+          <AIMessage
+            message={{
+              role: "assistant",
+              content: "Summarizing our previous conversation",
+            }}
           />
         )}
       </div>
