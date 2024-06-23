@@ -12,9 +12,9 @@ import markdownIt from "markdown-it";
 import Shiki from "@shikijs/markdown-it";
 
 const markdown = markdownIt();
-markdown.use(
-  await Shiki({ theme: "vitesse-dark", fallbackLanguage: "javascript" })
-);
+// markdown.use(
+//   await Shiki({ theme: "vitesse-dark",defaultLanguage:"javascript", })
+// );
 
 export const AIMessage = ({
   message,

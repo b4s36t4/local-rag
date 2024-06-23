@@ -1,13 +1,14 @@
 ---
 import Layout from "../layouts/Layout.astro";
 import { RenderMessageList } from "../components/RenderMessageList.tsx";
+import { Paperclip } from "lucide-react";
 ---
 
 <Layout title="ChatLLM">
   <div
     class="mx-[10%] max-h-[calc(100vh-150px)] mt-10 border-2 flex flex-col rounded-md border-slate-300"
   >
-    <RenderMessageList client:idle />
+    <RenderMessageList client:load />
 
     <div class="flex flex-col m-2 relative">
       <div
@@ -27,10 +28,27 @@ import { RenderMessageList } from "../components/RenderMessageList.tsx";
           class="w-[85%] outline-none p-2 flex-1"
           rows="3"
           style="resize: none;"></textarea>
-        <button
-          class="h-full w-[15%] bg-slate-200 mr-4 rounded-lg p-4 my-auto"
-          id="sendChat">Send</button
-        >
+        <div class="flex mx-4 py-4 items-center space-x-1">
+          <button
+            ><Paperclip
+              className="mr-4"
+              role="button"
+              client:visible
+              id="attachmentPickerBtn"
+            />
+          </button>
+
+          <input
+            type="file"
+            accept="text/pdf"
+            class="hidden"
+            id="attachmentPicker"
+          />
+          <button
+            class="h-full bg-slate-200 mr-4 rounded-lg p-4 my-auto"
+            id="sendChat">Send</button
+          >
+        </div>
       </div>
     </div>
   </div>
@@ -74,17 +92,219 @@ import { RenderMessageList } from "../components/RenderMessageList.tsx";
   } from "@mlc-ai/web-llm";
   import { chatStore, newMessageStore } from "../store/chat";
   import { modelStore } from "../store/modelStore";
+  import Toastify from "toastify-js";
+  import { toCompletionMessage } from "../utils/message";
+  import { WebPDFLoader } from "@langchain/community/document_loaders/web/pdf";
+  import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
+  import * as pdfjs from "pdfjs-dist";
+  import { EmbedDB } from "../embed/db";
+  // import { insert, search } from "@orama/orama";
 
-  import {
-    toCompletionMessage,
-    summarizeSystemMessage,
-  } from "../utils/message";
+  // https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.3.136/pdf.worker.mjs
+
+  pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.mjs`;
 
   let model: MLCEngine;
 
   window.MODEL_LOADED = false;
+  window.CHAT_PDF = false;
 
   const { pushMessage } = chatStore.getState();
+
+  const embedWorker = new Worker(
+    new URL("../embed/worker.ts", import.meta.url),
+    { type: "module" }
+  );
+
+  const splitter = new RecursiveCharacterTextSplitter({
+    // chunkSize: 512,
+    // chunkOverlap: 100,
+  });
+
+  const db = await EmbedDB.getDB();
+  const attachmentInput = document.getElementById(
+    "attachmentPicker"
+  ) as HTMLInputElement;
+  const attachmentPickerBtn = document.getElementById("attachmentPickerBtn");
+
+  let currentRunningToast: any = null;
+
+  attachmentPickerBtn?.addEventListener("click", () => {
+    attachmentInput?.click();
+  });
+
+  const askRAGQuestion = async ({
+    question,
+    context,
+  }: {
+    question: string;
+    context: string;
+  }) => {
+    const prompt = `
+    
+    Give the context below answer my questions.
+
+    context: ${context}
+
+    question: ${question}
+
+    `;
+
+    const systemMessage: ChatCompletionMessageParam = {
+      role: "user",
+      content: prompt,
+    };
+
+    const output = await model.chat.completions.create({
+      messages: [systemMessage],
+      n: 1,
+      stream_options: { include_usage: true },
+      stream: true,
+      // max_tokens: 512,
+      temperature: 0.2,
+    });
+
+    const message: ChatCompletionMessageParam = {
+      content: "",
+      role: "assistant",
+    };
+
+    newMessageStore.setState({ generating: true });
+
+    for await (const chunk of output) {
+      if (
+        chunk.choices.length === 0 ||
+        chunk.choices[0]?.finish_reason === "stop"
+      ) {
+        break;
+      }
+
+      const chunkMessage = chunk.choices[0].delta.content;
+      if (!chunkMessage) {
+        break;
+      }
+      message["content"]! += chunkMessage;
+
+      newMessageStore.setState({ message: message["content"] ?? "" });
+
+      // Indicating that generation has stopped
+    }
+
+    pushMessage(message);
+
+    newMessageStore.setState({ generating: false, message: "" });
+    enableSend();
+  };
+
+  embedWorker.addEventListener("message", async (event) => {
+    const isProgressEvent = event.data?.status === "progress";
+    const isProgressDone = event.data?.status === "ready";
+
+    if (isProgressEvent && currentRunningToast === null) {
+      currentRunningToast = Toastify({
+        text: "Loading embed Model...",
+        duration: -1,
+      });
+      currentRunningToast?.showToast();
+      return;
+    }
+
+    if (isProgressDone) {
+      currentRunningToast.hideToast();
+
+      Toastify({ text: "Embedding model loaded!", duration: 1000 }).showToast();
+    }
+
+    const isEmbed = event.data.type === "embedDocument";
+    if (isEmbed) {
+      // console.log(event, "event-data");
+      const embeddings = event.data.data;
+
+      if (!db) {
+        return;
+      }
+
+      // insert(db, {
+      //   doucment: event.data.payload,
+      //   embedding: embeddings?.at(0),
+      // });
+      db.add({
+        embeddings: [
+          {
+            id: crypto.randomUUID(),
+            embeddings: embeddings?.at(0) as number[],
+            title: event.data.payload as string,
+            url: "",
+          },
+        ],
+      });
+    }
+
+    const isEmbedQuestion = event.data.type === "embedQuestion";
+    if (isEmbedQuestion) {
+      if (!db) {
+        return;
+      }
+      const embedding = event.data.data?.at(0);
+
+      const similarity = db.search(embedding, 5);
+
+      let context = "";
+
+      similarity.neighbors.forEach((item) => {
+        context += item.title + "\n\n";
+      });
+
+      // results.hits.forEach((hit) => {
+      //   context += hit.document + "\n\n";
+      // });
+
+
+      await askRAGQuestion({ question: event.data.payload, context: context });
+    }
+  });
+
+  attachmentInput?.addEventListener("change", async function () {
+    const file = this.files?.item(0);
+    if (!file) {
+      return;
+    }
+    const loader = new WebPDFLoader(file, {
+      splitPages: false,
+      pdfjs: async () => ({
+        getDocument: pdfjs.getDocument,
+        version: pdfjs.version,
+      }),
+    });
+
+    embedWorker.postMessage({ type: "initiate" });
+
+    window.CHAT_PDF = true;
+
+    const documents = await loader.load();
+
+    const splits = await splitter.splitDocuments(documents);
+
+    splits.slice(0, 15).forEach((item) => {
+      embedWorker.postMessage({
+        data: item.pageContent,
+        id: crypto.randomUUID(),
+        type: "embedDocument",
+      });
+    });
+
+    Toastify({ text: "PDF Embedding completed", duration: 1000 }).showToast();
+
+    // currentRunningToast = Toastify({ text: "Loading file" }).showToast();
+    // embedWorker.postMessage({ data: ["Hello"] });
+  });
+  // embedWorker.addEventListener("message", (event) => {
+  //   console.log("event", event);
+  // });
+
+  // embedWorker.postMessage({
+  //   data: ["embed this", "sun is so hot", "moon is not visible"],
+  // });
 
   // Updateable Text fields
   const modelText = document.getElementById("selectedModel");
@@ -115,14 +335,14 @@ import { RenderMessageList } from "../components/RenderMessageList.tsx";
   }
 
   selectedModel!.overrides = {
-    sliding_window_size: 1024,
+    // sliding_window_size: 1024,
     temperature: 0.5,
     top_p: 0.3,
     attention_sink_size: 4,
     frequency_penalty: 0.3,
     presence_penalty: 0.5,
     repetition_penalty: 0.2,
-    context_window_size: -1,
+    context_window_size: 1024,
   };
   // Check weather the model is already downloaded
   const isSelectedModelAvailable = await hasModelInCache(
@@ -148,7 +368,6 @@ import { RenderMessageList } from "../components/RenderMessageList.tsx";
     if (sendButton) {
       sendButton.setAttribute("disabled", "true");
       sendButton.textContent = "Loading...";
-      console.log("Helo", sendButton);
     }
   };
 
@@ -187,8 +406,11 @@ import { RenderMessageList } from "../components/RenderMessageList.tsx";
       {
         sliding_window_size: 512,
         context_window_size: -1,
-        temperature: 0.5,
+        // temperature: 0.2,
         attention_sink_size: 4,
+        // frequency_penalty: 0.6,
+        // presence_penalty: 0.5,
+        // repetition_penalty: 0.3,
       }
     );
 
@@ -209,6 +431,9 @@ import { RenderMessageList } from "../components/RenderMessageList.tsx";
 
     sendButton?.addEventListener("click", async function () {
       const question = input.value;
+      const questionMessage = toCompletionMessage(question);
+
+      disableSend();
       if (question.trim().length === 0) {
         alert("Please ask what you want?!");
         return;
@@ -218,43 +443,27 @@ import { RenderMessageList } from "../components/RenderMessageList.tsx";
         await startModel();
         window.MODEL_LOADED = true;
       }
-      const questionMessage = toCompletionMessage(question);
-      pushMessage(questionMessage);
-      resetInputText();
 
-      let memory: ChatCompletionMessageParam[] = [];
-      const previousMessages = chatStore.getState().messages;
-      if (previousMessages.length > 4) {
-        const summarizedMessage = await summarizeSystemMessage(
-          chatStore
-            .getState()
-            .messages.slice(0, chatStore.getState().messages.length - 1),
-          model
-        );
-
-        if (summarizedMessage.length === 0) {
+      if (window.CHAT_PDF) {
+        if (!db) {
           return;
         }
 
-        console.log(summarizedMessage, "message");
-
-        memory.push({
-          role: "system",
-          content: `Given our previous conversation context as summorized ${summarizedMessage[0].message.content}, answer the upcoming questions keeping the context in mind. If you find the context not useful ignore the context and answer your own for the questions asked. \n\n User: `,
-        });
-        memory.push(questionMessage);
-      } else {
-        memory.push(...chatStore.getState().messages);
+        embedWorker.postMessage({ type: "embedQuestion", data: question });
+        pushMessage(questionMessage);
+        resetInputText();
+        return;
       }
 
+      pushMessage(questionMessage);
+      resetInputText();
+
       const output = await model.chat.completions.create({
-        messages: [...memory],
+        messages: chatStore.getState().messages,
         n: 1,
         stream_options: { include_usage: true },
         stream: true,
         // max_tokens: 512,
-        frequency_penalty: 1,
-        seed: 10000,
         temperature: 0.2,
       });
 
@@ -287,6 +496,7 @@ import { RenderMessageList } from "../components/RenderMessageList.tsx";
       pushMessage(message);
 
       newMessageStore.setState({ generating: false, message: "" });
+      enableSend();
     });
   };
 
