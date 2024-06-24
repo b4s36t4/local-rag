@@ -136,7 +136,7 @@ import { Paperclip } from "lucide-react";
 
     agentStore.subscribe((store) => {
       currentAgent = store.selectedAgentId;
-      currentAgentInstance = store.selectedAgentInstance;
+      currentAgentInstance = store.selectedAgentInstance!;
     });
   }
 
@@ -191,6 +191,19 @@ import { Paperclip } from "lucide-react";
           text: "Embedding model loaded!",
           duration: 1000,
         }).showToast();
+      }
+
+      if (event.data?.type === WorkerPostTypes.embedQuestion) {
+        console.log(event.data, "dataaa...");
+        const context = currentAgentInstance?.search(event.data.data);
+        if (!context) {
+          return;
+        }
+
+        const contextData = context.neighbors
+          .map((result) => result.title)
+          .join("\n\n");
+        currentAgentInstance?.ask(event.data.payload, contextData, enableSend);
       }
     });
   }
@@ -335,11 +348,7 @@ import { Paperclip } from "lucide-react";
         window.MODEL_LOADED = true;
       }
 
-      if (window.CHAT_PDF) {
-        if (!db) {
-          return;
-        }
-
+      if (currentAgent) {
         embedWorker.postMessage({
           type: WorkerPostTypes.embedQuestion,
           data: question,

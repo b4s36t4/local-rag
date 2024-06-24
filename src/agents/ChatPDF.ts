@@ -4,7 +4,12 @@ import { WorkerPostTypes } from "../const";
 import { WebPDFLoader } from "@langchain/community/document_loaders/web/pdf";
 import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
 import * as pdfjs from "pdfjs-dist";
-import type { ChatCompletionChunk, MLCEngine } from "@mlc-ai/web-llm";
+import type {
+  ChatCompletionChunk,
+  ChatCompletionMessageParam,
+  MLCEngine,
+} from "@mlc-ai/web-llm";
+import { chatStore, newMessageStore } from "../store/chat";
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.mjs`;
 
@@ -29,6 +34,26 @@ class ChatPDF extends ModelInstance {
 
       if (type === WorkerPostTypes.embedDocument) {
         console.log("[Embed] Document embed created");
+        console.log(event.data, "Events");
+        if (!event.data.data?.length) {
+          console.log(
+            "%c[Embed Error]",
+            "background-color: red;padding:2px;color:white",
+            "Can't embed"
+          );
+          return;
+        }
+        window.db.add({
+          embeddings: [
+            {
+              embeddings: event.data.data.at(0),
+              id: crypto.randomUUID(),
+              title: event.data.payload,
+              url: "",
+            },
+          ],
+        });
+        console.log("[Embed] Added into Vector Search");
       }
 
       return;
@@ -52,11 +77,8 @@ class ChatPDF extends ModelInstance {
     });
   }
 
-  async ask(
-    question: string,
-    context: string,
-    callback: (chunk: ChatCompletionChunk) => void
-  ) {
+  async ask(question: string, context: string, callback: () => void) {
+    console.log(context, question, "data!!");
     const prompt = `
     
     Give the context below answer my questions.
@@ -79,12 +101,37 @@ class ChatPDF extends ModelInstance {
       return;
     }
 
+    const message: ChatCompletionMessageParam = {
+      content: "",
+      role: "assistant",
+    };
+
+    newMessageStore.setState({ generating: true });
+
     for await (const chunk of stream) {
-      callback(chunk);
+      // callback(chunk);
+      if (
+        chunk.choices.length === 0 ||
+        chunk.choices[0]?.finish_reason === "stop"
+      ) {
+        break;
+      }
+
+      const chunkMessage = chunk.choices[0].delta.content;
+      if (!chunkMessage) {
+        break;
+      }
+      message["content"]! += chunkMessage;
+
+      newMessageStore.setState({ message: message["content"] ?? "" });
     }
+    chatStore.getState().pushMessage(message);
+
+    newMessageStore.setState({ generating: false, message: "" });
+    callback();
   }
 
-  async loadFile(file: File, callback: (event: any) => void) {
+  async loadFile(file: File) {
     const loader = new WebPDFLoader(file, {
       pdfjs: async () => ({
         getDocument: pdfjs.getDocument,

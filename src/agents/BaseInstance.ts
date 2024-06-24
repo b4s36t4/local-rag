@@ -25,12 +25,12 @@ abstract class ModelInstance {
   async ask(
     question: string,
     context: string,
-    callback?: (chunk: ChatCompletionChunk) => void
+    callback?: () => void
   ): Promise<void> {
     throw new Error("Not Implemented");
   }
 
-  abstract loadFile(file: File): void;
+  async loadFile(file: File): Promise<void> {}
 }
 
 export { ModelInstance };
