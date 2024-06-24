@@ -92,36 +92,54 @@ import { Paperclip } from "lucide-react";
   } from "@mlc-ai/web-llm";
   import { chatStore, newMessageStore } from "../store/chat";
   import { modelStore } from "../store/modelStore";
+  import { agentStore } from "../store/agent";
   import Toastify from "toastify-js";
   import { toCompletionMessage } from "../utils/message";
-  import { WebPDFLoader } from "@langchain/community/document_loaders/web/pdf";
-  import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
-  import * as pdfjs from "pdfjs-dist";
+
   import { EmbedDB } from "../embed/db";
-  // import { insert, search } from "@orama/orama";
-
-  // https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.3.136/pdf.worker.mjs
-
-  pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.mjs`;
+  import { WorkerPostTypes } from "../const";
+  import { ChatPDF } from "../agents/ChatPDF";
+  import { ModelInstance } from "../agents/BaseInstance";
 
   let model: MLCEngine;
 
   window.MODEL_LOADED = false;
   window.CHAT_PDF = false;
 
-  const { pushMessage } = chatStore.getState();
-
   const embedWorker = new Worker(
     new URL("../embed/worker.ts", import.meta.url),
     { type: "module" }
   );
-
-  const splitter = new RecursiveCharacterTextSplitter({
-    // chunkSize: 512,
-    // chunkOverlap: 100,
-  });
+  const { pushMessage } = chatStore.getState();
 
   const db = await EmbedDB.getDB();
+  window.db = db;
+
+  let currentAgent: string | null = agentStore.getState().selectedAgentId;
+  let currentAgentInstance: ModelInstance | null = null;
+  const loadAgent = () => {
+    currentAgentInstance = new ChatPDF(model!, embedWorker);
+    agentStore.setState({
+      selectedAgentInstance: currentAgentInstance,
+    });
+  };
+
+  {
+    // Keep track of the current live agent
+
+    console.log(
+      "%c[AGENT]",
+      "background-color: wheat;padding:2px;color: black",
+      "Current agent is",
+      currentAgent
+    );
+
+    agentStore.subscribe((store) => {
+      currentAgent = store.selectedAgentId;
+      currentAgentInstance = store.selectedAgentInstance;
+    });
+  }
+
   const attachmentInput = document.getElementById(
     "attachmentPicker"
   ) as HTMLInputElement;
@@ -129,182 +147,53 @@ import { Paperclip } from "lucide-react";
 
   let currentRunningToast: any = null;
 
-  attachmentPickerBtn?.addEventListener("click", () => {
-    attachmentInput?.click();
-  });
-
-  const askRAGQuestion = async ({
-    question,
-    context,
-  }: {
-    question: string;
-    context: string;
-  }) => {
-    const prompt = `
-    
-    Give the context below answer my questions.
-
-    context: ${context}
-
-    question: ${question}
-
-    `;
-
-    const systemMessage: ChatCompletionMessageParam = {
-      role: "user",
-      content: prompt,
-    };
-
-    const output = await model.chat.completions.create({
-      messages: [systemMessage],
-      n: 1,
-      stream_options: { include_usage: true },
-      stream: true,
-      // max_tokens: 512,
-      temperature: 0.2,
+  {
+    // Attachment Handlers
+    attachmentPickerBtn?.addEventListener("click", () => {
+      attachmentInput?.click();
     });
 
-    const message: ChatCompletionMessageParam = {
-      content: "",
-      role: "assistant",
-    };
-
-    newMessageStore.setState({ generating: true });
-
-    for await (const chunk of output) {
-      if (
-        chunk.choices.length === 0 ||
-        chunk.choices[0]?.finish_reason === "stop"
-      ) {
-        break;
-      }
-
-      const chunkMessage = chunk.choices[0].delta.content;
-      if (!chunkMessage) {
-        break;
-      }
-      message["content"]! += chunkMessage;
-
-      newMessageStore.setState({ message: message["content"] ?? "" });
-
-      // Indicating that generation has stopped
-    }
-
-    pushMessage(message);
-
-    newMessageStore.setState({ generating: false, message: "" });
-    enableSend();
-  };
-
-  embedWorker.addEventListener("message", async (event) => {
-    const isProgressEvent = event.data?.status === "progress";
-    const isProgressDone = event.data?.status === "ready";
-
-    if (isProgressEvent && currentRunningToast === null) {
-      currentRunningToast = Toastify({
-        text: "Loading embed Model...",
-        duration: -1,
-      });
-      currentRunningToast?.showToast();
-      return;
-    }
-
-    if (isProgressDone) {
-      currentRunningToast.hideToast();
-
-      Toastify({ text: "Embedding model loaded!", duration: 1000 }).showToast();
-    }
-
-    const isEmbed = event.data.type === "embedDocument";
-    if (isEmbed) {
-      // console.log(event, "event-data");
-      const embeddings = event.data.data;
-
-      if (!db) {
+    attachmentInput?.addEventListener("change", async function () {
+      const file = this.files?.item(0);
+      if (!file) {
         return;
       }
 
-      // insert(db, {
-      //   doucment: event.data.payload,
-      //   embedding: embeddings?.at(0),
-      // });
-      db.add({
-        embeddings: [
-          {
-            id: crypto.randomUUID(),
-            embeddings: embeddings?.at(0) as number[],
-            title: event.data.payload as string,
-            url: "",
-          },
-        ],
-      });
-    }
+      if (!currentAgentInstance) {
+        await startModel();
+      }
 
-    const isEmbedQuestion = event.data.type === "embedQuestion";
-    if (isEmbedQuestion) {
-      if (!db) {
+      currentAgentInstance?.loadFile(file);
+
+      Toastify({ text: "PDF Embedding completed", duration: 1000 }).showToast();
+    });
+  }
+
+  {
+    // Worker Listener
+    embedWorker.addEventListener("message", async (event) => {
+      const isProgressEvent = event.data?.status === "progress";
+      const isProgressDone = event.data?.status === "ready";
+
+      if (isProgressEvent && currentRunningToast === null) {
+        currentRunningToast = Toastify({
+          text: "Loading embed Model...",
+          duration: -1,
+        });
+        currentRunningToast?.showToast();
         return;
       }
-      const embedding = event.data.data?.at(0);
 
-      const similarity = db.search(embedding, 5);
+      if (isProgressDone) {
+        currentRunningToast.hideToast();
 
-      let context = "";
-
-      similarity.neighbors.forEach((item) => {
-        context += item.title + "\n\n";
-      });
-
-      // results.hits.forEach((hit) => {
-      //   context += hit.document + "\n\n";
-      // });
-
-
-      await askRAGQuestion({ question: event.data.payload, context: context });
-    }
-  });
-
-  attachmentInput?.addEventListener("change", async function () {
-    const file = this.files?.item(0);
-    if (!file) {
-      return;
-    }
-    const loader = new WebPDFLoader(file, {
-      splitPages: false,
-      pdfjs: async () => ({
-        getDocument: pdfjs.getDocument,
-        version: pdfjs.version,
-      }),
+        Toastify({
+          text: "Embedding model loaded!",
+          duration: 1000,
+        }).showToast();
+      }
     });
-
-    embedWorker.postMessage({ type: "initiate" });
-
-    window.CHAT_PDF = true;
-
-    const documents = await loader.load();
-
-    const splits = await splitter.splitDocuments(documents);
-
-    splits.slice(0, 15).forEach((item) => {
-      embedWorker.postMessage({
-        data: item.pageContent,
-        id: crypto.randomUUID(),
-        type: "embedDocument",
-      });
-    });
-
-    Toastify({ text: "PDF Embedding completed", duration: 1000 }).showToast();
-
-    // currentRunningToast = Toastify({ text: "Loading file" }).showToast();
-    // embedWorker.postMessage({ data: ["Hello"] });
-  });
-  // embedWorker.addEventListener("message", (event) => {
-  //   console.log("event", event);
-  // });
-
-  // embedWorker.postMessage({
-  //   data: ["embed this", "sun is so hot", "moon is not visible"],
-  // });
+  }
 
   // Updateable Text fields
   const modelText = document.getElementById("selectedModel");
@@ -414,6 +303,8 @@ import { Paperclip } from "lucide-react";
       }
     );
 
+    loadAgent();
+
     window.MODEL_LOADED = true;
   };
 
@@ -449,7 +340,10 @@ import { Paperclip } from "lucide-react";
           return;
         }
 
-        embedWorker.postMessage({ type: "embedQuestion", data: question });
+        embedWorker.postMessage({
+          type: WorkerPostTypes.embedQuestion,
+          data: question,
+        });
         pushMessage(questionMessage);
         resetInputText();
         return;

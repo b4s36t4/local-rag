@@ -84,7 +84,6 @@ export const RenderMessageList = () => {
   useEffect(() => {
     chatStore.subscribe((store, prevStore) => {
       setMessages(store.messages);
-      console.log(store.messages.at(-1), "final message");
       messageContainerRef.current?.scrollTo({
         left: 0,
         top: messageContainerRef.current?.scrollHeight ?? 500,
