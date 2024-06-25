@@ -1,5 +1,11 @@
 ---
-import { Eye, FileText, RefreshCcw } from "lucide-react";
+import {
+  Eye,
+  FileText,
+  RefreshCcw,
+  Database,
+  ArrowUpFromLine,
+} from "lucide-react";
 import Layout from "../layouts/Layout.astro";
 
 const agents = [
@@ -10,6 +16,17 @@ const agents = [
     embedding_json: "chat_pdf.json",
     icon: FileText,
   },
+  {
+    title: "SQLMan",
+    description: "A SQL helper that you can ask question by giving your schema",
+    id: "sql_chat",
+    embedding_json: "sql_chat.json",
+    icon: Database,
+    upload: true,
+    uploadDescription: "Share your DB schema to get relavent answers",
+    language: "sql",
+    editor: true,
+  },
 ];
 ---
 
@@ -17,21 +34,26 @@ const agents = [
   <main class="mx-auto mt-6 md:w-[60%]">
     <h3 class="text-2xl font-semibold underline">Agents</h3>
 
-    <div class="mt-4 flex justify-between items-center flex-wrap">
+    <div class="mt-4 flex items-center flex-wrap">
       {
         agents.map((agent) => {
           return (
-            <div class="w-[250px] border-2 rounded-lg border-blue-200 p-2">
+            <div class="w-[250px] border-2 mx-2 rounded-lg border-blue-200 p-2">
               <agent.icon className="my-4" size={40} />
               <h2 class="text-lg font-bold">{agent.title}</h2>
               <h4 class="text-base text-gray-600">{agent.description}</h4>
               <div class="my-2 flex space-x-2">
-                <span title="View loaded/saved documents">
+                <span role="button"  title="View loaded/saved documents">
                   <Eye />
                 </span>
-                <span title="Reload the data">
+                <span role="button" title="Reload the data">
                   <RefreshCcw />
                 </span>
+                {agent.upload && (
+                  <span role="button" title={agent.uploadDescription}>
+                    <ArrowUpFromLine />
+                  </span>
+                )}
               </div>
               <button
                 data-agent-id={agent.id}
