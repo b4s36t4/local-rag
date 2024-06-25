@@ -82,7 +82,11 @@ const agents = [
         SQL Schema
       </h3>
 
-      <div class="hidden h-[calc(100%-100px)] w-full" id="monacoEditor"></div>
+      <div
+        class="hidden min-h-[200px] h-[calc(100%-100px)] w-full"
+        id="monacoEditor"
+      >
+      </div>
       <div class="hidden" id="wysiwyg"></div>
 
       <div class="mt-4 flex float-right">
@@ -109,12 +113,20 @@ const agents = [
     let editor: monaco.editor.IStandaloneCodeEditor | null = null;
 
     const closeButton = document.getElementById("modalClose");
+    const saveButton = document.getElementById("modalSave");
 
     const buttons = document.querySelectorAll(
       ".agentEnable"
     ) as NodeListOf<HTMLButtonElement>;
 
     const monacoInstance = document.getElementById("monacoEditor");
+
+    saveButton?.addEventListener("click", () => {
+      const savedValue = editor?.getValue();
+      if (!savedValue) {
+        return;
+      }
+    });
 
     closeButton?.addEventListener("click", () => {
       window.modal.close();
