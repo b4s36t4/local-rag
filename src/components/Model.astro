@@ -1,0 +1,61 @@
+---
+import clsx from "clsx";
+const { enabled = false } = Astro.props;
+---
+
+<div
+  id="modal"
+  class={clsx(
+    "absolute transition-all ease-in-out duration-150 w-full h-full bg-[rgba(0,0,0,0.2)] inset-0 z-10",
+    { hidden: !enabled, flex: enabled }
+  )}
+  data-enabled={enabled}
+>
+  <div
+    id="container"
+    class="flex bg-white shadow-lg h-[400px] p-2 mx-auto mb-auto mt-32 min-w-[600px] max-w-[800px] w-full rounded-lg"
+  >
+    <slot name="child" />
+  </div>
+</div>
+
+<script>
+  const modalElement = document.getElementById("modal") as HTMLDivElement;
+
+  let enabled = Boolean(modalElement.dataset["enabled"]);
+
+  if (modalElement) {
+    Object.defineProperty(modalElement, "close", {
+      value: () => {
+        modalElement.classList.remove("flex");
+        modalElement.classList.add("hidden");
+        enabled = false;
+      },
+      configurable: true,
+    });
+
+    Object.defineProperty(modalElement, "setChildren", {
+      value: (child: HTMLElement) => {
+        const modalContainer = modalElement.querySelector("#container");
+        modalContainer?.appendChild(child);
+      },
+      configurable: true,
+    });
+
+    Object.defineProperty(modalElement, "open", {
+      value: () => {
+        modalElement.classList.remove("hidden");
+        modalElement.classList.add("flex");
+        enabled = true;
+      },
+      configurable: true,
+    });
+
+    Object.defineProperty(modalElement, "enabled", {
+      value: () => enabled,
+      configurable: true,
+    });
+  }
+
+  window.modal = modalElement as any;
+</script>

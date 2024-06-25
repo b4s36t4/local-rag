@@ -7,6 +7,7 @@ import {
   ArrowUpFromLine,
 } from "lucide-react";
 import Layout from "../layouts/Layout.astro";
+import Modal from "../components/Model.astro";
 
 const agents = [
   {
@@ -38,7 +39,7 @@ const agents = [
       {
         agents.map((agent) => {
           return (
-            <div class="w-[250px] border-2 rounded-lg border-blue-200 p-2 agent-entry">
+            <div class="w-[250px] mr-4 border-2 rounded-lg border-blue-200 p-2 agent-entry">
               <agent.icon className="my-4" size={40} />
               <h2 class="text-lg font-bold">{agent.title}</h2>
               <h4 class="text-base text-gray-600">{agent.description}</h4>
@@ -53,13 +54,18 @@ const agents = [
                   <RefreshCcw />
                 </span>
                 {agent.upload && (
-                  <span role="button" title={agent.uploadDescription}>
+                  <span
+                    role="button"
+                    class="upload-data"
+                    title={agent.uploadDescription}
+                  >
                     <ArrowUpFromLine />
                   </span>
                 )}
               </div>
               <button
                 data-agent-id={agent.id}
+                data-agentJSON={JSON.stringify(agent)}
                 class="w-full bg-black text-white mt-4 rounded-md p-1 agentEnable"
               >
                 Enable
@@ -70,55 +76,118 @@ const agents = [
       }
     </div>
   </main>
-</Layout>
+  <Modal enabled={true}>
+    <div slot="child" class="w-full overflow-hidden">
+      <h3 class="py-2 border-b-2 border-gray-300 text-xl font-semibold w-full">
+        SQL Schema
+      </h3>
 
-<script>
-  import { agentStore } from "../store/agent";
-  import { ModelInstance } from "../agents/BaseInstance";
-  import { ChatPDF } from "../agents/ChatPDF";
-  import { getFiles } from "../utils/files";
-  const { selectedAgentId, updateAgent } = agentStore.getState();
+      <div class="hidden h-[calc(100%-100px)] w-full" id="monacoEditor"></div>
+      <div class="hidden" id="wysiwyg"></div>
 
-  const buttons = document.querySelectorAll(
-    ".agentEnable"
-  ) as NodeListOf<HTMLButtonElement>;
+      <div class="mt-4 flex float-right">
+        <button
+          id="modalSave"
+          class="bg-gray-800 p-1 px-2 mx-1 rounded-md text-white">Save</button
+        >
+        <button
+          id="modalClose"
+          class="bg-red-400 p-1 px-2 mx-1 rounded-md text-white">Close</button
+        >
+      </div>
+    </div>
+  </Modal>
 
-  buttons.forEach((button) => {
-    const agentId = button.dataset["agentId"];
+  <script>
+    import { agentStore } from "../store/agent";
+    import { getFiles } from "../utils/files";
+    import * as monaco from "monaco-editor";
+    import "../utils/loadMonacoWorker";
 
-    agentStore.subscribe(({ selectedAgentId }) => {
-      if (selectedAgentId === agentId) {
+    const { selectedAgentId, updateAgent } = agentStore.getState();
+
+    let editor: monaco.editor.IStandaloneCodeEditor | null = null;
+
+    const closeButton = document.getElementById("modalClose");
+
+    const buttons = document.querySelectorAll(
+      ".agentEnable"
+    ) as NodeListOf<HTMLButtonElement>;
+
+    const monacoInstance = document.getElementById("monacoEditor");
+
+    closeButton?.addEventListener("click", () => {
+      window.modal.close();
+      editor?.dispose();
+      editor = null;
+    });
+
+    buttons.forEach((button) => {
+      const agentId = button.dataset["agentId"];
+      const agentJSON = JSON.parse((button.dataset["agentjson"] as any) ?? {});
+
+      agentStore.subscribe(({ selectedAgentId }) => {
+        if (selectedAgentId === agentId) {
+          button.innerText = "Disable";
+          return;
+        }
+
+        button.innerText = "Enable";
+      });
+
+      if (agentId === selectedAgentId) {
         button.innerText = "Disable";
-        return;
       }
 
-      button.innerText = "Enable";
-    });
+      const agentEntry = button.parentNode;
 
-    if (agentId === selectedAgentId) {
-      button.innerText = "Disable";
-    }
+      const viewButton = agentEntry?.querySelector(".view-documents");
+      const reloadButton = agentEntry?.querySelector(".reload-vector");
+      const uploadButton = agentEntry?.querySelector(".upload-data");
 
-    const agentEntry = button.parentNode;
+      viewButton?.addEventListener("click", () => {
+        console.log("view...", getFiles(agentId ?? ""), "instance");
+      });
 
-    const viewButton = agentEntry?.querySelector(".view-documents");
-    const reloadButton = agentEntry?.querySelector(".reload-vector");
+      const loadMonaco = () => {
+        if (!agentJSON["upload"]) {
+          return;
+        }
+        editor = monaco.editor.create(monacoInstance!, {
+          language: "sql",
+          value: "SELECT * from users;",
+          theme: "vs-dark",
+          automaticLayout: true,
+        });
+        window.modal.open();
 
-    viewButton?.addEventListener("click", () => {
-      console.log("view...", getFiles(agentId ?? ""), "instance");
-    });
+        console.log(editor.getValue(), "value");
 
-    button.addEventListener("click", function () {
-      if (!agentId) {
-        return;
+        monacoInstance?.classList.remove("hidden");
+      };
+
+      if (window.modal.enabled) {
+        loadMonaco();
       }
 
-      if (agentId === agentStore.getState().selectedAgentId) {
-        updateAgent(null, null);
-        return;
-      }
+      uploadButton?.addEventListener("click", () => {
+        console.log(window.modal, "modal");
+        loadMonaco();
+        // loadMonacoWorker();
+      });
 
-      updateAgent(agentId, null);
+      button.addEventListener("click", function () {
+        if (!agentId) {
+          return;
+        }
+
+        if (agentId === agentStore.getState().selectedAgentId) {
+          updateAgent(null, null);
+          return;
+        }
+
+        updateAgent(agentId, null);
+      });
     });
-  });
-</script>
+  </script>
+</Layout>
