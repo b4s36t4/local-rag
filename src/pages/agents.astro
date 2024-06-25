@@ -7,7 +7,7 @@ import {
   ArrowUpFromLine,
 } from "lucide-react";
 import Layout from "../layouts/Layout.astro";
-import Modal from "../components/Model.astro";
+import Modal from "../components/Modal.astro";
 
 const agents = [
   {
@@ -108,7 +108,11 @@ const agents = [
     import * as monaco from "monaco-editor";
     import "../utils/loadMonacoWorker";
 
-    const { selectedAgentId, updateAgent } = agentStore.getState();
+    const getModalStatus = () => {
+      return Boolean(window.modal.dataset["enabled"]);
+    };
+
+    const { agent } = agentStore.getState();
 
     let editor: monaco.editor.IStandaloneCodeEditor | null = null;
 
@@ -138,8 +142,8 @@ const agents = [
       const agentId = button.dataset["agentId"];
       const agentJSON = JSON.parse((button.dataset["agentjson"] as any) ?? {});
 
-      agentStore.subscribe(({ selectedAgentId }) => {
-        if (selectedAgentId === agentId) {
+      agentStore.subscribe(({ agent }) => {
+        if (agent?.id === agentId) {
           button.innerText = "Disable";
           return;
         }
@@ -147,7 +151,7 @@ const agents = [
         button.innerText = "Enable";
       });
 
-      if (agentId === selectedAgentId) {
+      if (agentId === agent?.id) {
         button.innerText = "Disable";
       }
 
@@ -157,11 +161,9 @@ const agents = [
       const reloadButton = agentEntry?.querySelector(".reload-vector");
       const uploadButton = agentEntry?.querySelector(".upload-data");
 
-      viewButton?.addEventListener("click", () => {
-        console.log("view...", getFiles(agentId ?? ""), "instance");
-      });
+      viewButton?.addEventListener("click", () => {});
 
-      const loadMonaco = () => {
+      const loadMonaco = (modalOpen = false) => {
         if (!agentJSON["upload"]) {
           return;
         }
@@ -171,19 +173,20 @@ const agents = [
           theme: "vs-dark",
           automaticLayout: true,
         });
-        window.modal.open();
+
+        if (!modalOpen) {
+          window.modal.open();
+        }
 
         monacoInstance?.classList.remove("hidden");
       };
 
-      if (window.modal.enabled) {
-        loadMonaco();
+      if (getModalStatus()) {
+        loadMonaco(true);
       }
 
       uploadButton?.addEventListener("click", () => {
-        console.log(window.modal, "modal");
-        loadMonaco();
-        // loadMonacoWorker();
+        loadMonaco(false);
       });
 
       button.addEventListener("click", function () {
@@ -191,12 +194,12 @@ const agents = [
           return;
         }
 
-        if (agentId === agentStore.getState().selectedAgentId) {
-          updateAgent(null, null);
+        if (agentId === agentStore.getState().agent?.id) {
+          agentStore.setState({ agent: { id: null, instance: null } });
           return;
         }
 
-        updateAgent(agentId, null);
+        agentStore.setState({ agent: { id: agentId as any, instance: null } });
       });
     });
   </script>

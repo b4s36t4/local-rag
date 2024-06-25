@@ -1,5 +1,4 @@
 import type { SearchResult } from "voy-search";
-import { ModelInstance } from "./BaseInstance";
 import { WorkerPostTypes } from "../const";
 import { WebPDFLoader } from "@langchain/community/document_loaders/web/pdf";
 import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
@@ -10,19 +9,20 @@ import { getOrCreateFolder, createFile, getFiles } from "../utils/files";
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.mjs`;
 
-class ChatPDF extends ModelInstance {
-  static instance: ModelInstance | null = null;
+class ChatPDF {
+  static instance: ChatPDF | null = null;
   model: MLCEngine | null = null;
   splitter: RecursiveCharacterTextSplitter | null = null;
   // loader: WebPDFLoader | null = null
   worker: Worker | null = null;
 
   cacheHandle: FileSystemDirectoryHandle | null = null;
+  cacheName: string = "chat_pdf";
 
   static cacheNameStatic: string = "chat_pdf";
 
   constructor(model: MLCEngine, worker: Worker) {
-    super("chat_pdf", "chat_pdf");
+    // super("chat_pdf", "chat_pdf");
     this.model = model;
     this.splitter = new RecursiveCharacterTextSplitter({
       chunkSize: 500,
@@ -66,7 +66,7 @@ class ChatPDF extends ModelInstance {
       .catch((err) => console.log(err, "Root error"));
   }
 
-  static getInstance(model: MLCEngine, worker: Worker): ModelInstance {
+  static getInstance(model: MLCEngine, worker: Worker): ChatPDF {
     if (this.instance) {
       return this.instance;
     }
@@ -74,14 +74,6 @@ class ChatPDF extends ModelInstance {
     return this.instance;
   }
 
-  addIndex(data: string | string[]): void {
-    // throw new Error("Method not implemented.");
-    self.postMessage({
-      type: WorkerPostTypes.embedQuestion,
-      data,
-      id: crypto.randomUUID(),
-    });
-  }
 
   async ask(question: string, context: string, callback: () => void) {
     const prompt = `

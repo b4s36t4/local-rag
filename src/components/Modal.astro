@@ -9,7 +9,7 @@ const { enabled = false } = Astro.props;
     "absolute transition-all ease-in-out duration-150 w-full h-full bg-[rgba(0,0,0,0.2)] inset-0 z-10",
     { hidden: !enabled, flex: enabled }
   )}
-  data-enabled={enabled}
+  data-enabled={JSON.stringify(enabled)}
 >
   <div
     id="container"
@@ -20,16 +20,20 @@ const { enabled = false } = Astro.props;
 </div>
 
 <script>
-  const modalElement = document.getElementById("modal") as HTMLDivElement;
+  const modalElement = document.getElementById("modal") as HTMLDivElement & {
+    status?: boolean;
+  };
 
-  let enabled = Boolean(modalElement.dataset["enabled"]);
+  const updateEnabled = (value: boolean) => {
+    modalElement.dataset["enabled"] = String(value);
+  };
 
   if (modalElement) {
     Object.defineProperty(modalElement, "close", {
       value: () => {
         modalElement.classList.remove("flex");
         modalElement.classList.add("hidden");
-        enabled = false;
+        updateEnabled(false);
       },
       configurable: true,
     });
@@ -46,16 +50,13 @@ const { enabled = false } = Astro.props;
       value: () => {
         modalElement.classList.remove("hidden");
         modalElement.classList.add("flex");
-        enabled = true;
+        updateEnabled(true);
       },
       configurable: true,
     });
 
-    Object.defineProperty(modalElement, "enabled", {
-      value: () => enabled,
-      configurable: true,
-    });
-  }
+    modalElement.status = Boolean(modalElement.dataset["enabled"]);
 
-  window.modal = modalElement as any;
+    window.modal = modalElement as any;
+  }
 </script>

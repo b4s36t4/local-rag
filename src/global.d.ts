@@ -16,6 +16,8 @@ declare interface Window {
   modal: HTMLDivElement & {
     open: () => void;
     close: () => void;
-    enabled: boolean;
+    status: boolean;
   };
 }
+
+declare type AGENT = { chat_pdf: "chat_pdf"; chat_sql: "chat_sql" };

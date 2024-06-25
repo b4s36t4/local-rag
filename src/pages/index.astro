@@ -107,7 +107,6 @@ import { Paperclip } from "lucide-react";
   import { EmbedDB } from "../embed/db";
   import { WorkerPostTypes } from "../const";
   import { getAgentInstance } from "../utils/agent";
-  import { ModelInstance } from "../agents/BaseInstance";
 
   let model: MLCEngine;
 
@@ -123,15 +122,15 @@ import { Paperclip } from "lucide-react";
   const db = await EmbedDB.getDB();
   window.db = db;
 
-  let currentAgent: string | null = agentStore.getState().selectedAgentId;
-  let currentAgentInstance: ModelInstance | null = null;
+  let currentAgent = agentStore.getState().agent;
   const loadAgent = () => {
-    currentAgentInstance = getAgentInstance(currentAgent ?? "", {
+    const instance = getAgentInstance(currentAgent?.id ?? "", {
       model,
       worker: embedWorker,
     });
     agentStore.setState({
-      selectedAgentInstance: currentAgentInstance,
+      // @ts-ignore
+      agent: { ...currentAgent, instance: instance },
     });
   };
 
@@ -139,7 +138,7 @@ import { Paperclip } from "lucide-react";
 
   {
     // Keep track of the current live agent
-    currentAgentElement!.innerText = currentAgent ?? "";
+    currentAgentElement!.innerText = currentAgent?.id ?? "";
 
     console.log(
       "%c[AGENT]",
@@ -149,11 +148,10 @@ import { Paperclip } from "lucide-react";
     );
 
     agentStore.subscribe((store) => {
-      currentAgent = store.selectedAgentId;
-      currentAgentInstance = store.selectedAgentInstance!;
+      currentAgent = store.agent;
 
       if (!!currentAgent) {
-        currentAgentElement!.innerText = currentAgent;
+        currentAgentElement!.innerText = currentAgent.id!;
       }
     });
   }
@@ -177,11 +175,13 @@ import { Paperclip } from "lucide-react";
         return;
       }
 
-      if (!currentAgentInstance) {
+      if (!currentAgent?.instance) {
         await startModel();
       }
 
-      currentAgentInstance?.loadFile(file);
+      if (currentAgent?.id === "chat_pdf") {
+        currentAgent?.instance?.loadFile(file);
+      }
 
       Toastify({ text: "PDF Embedding completed", duration: 1000 }).showToast();
     });
@@ -212,7 +212,7 @@ import { Paperclip } from "lucide-react";
       }
 
       if (event.data?.type === WorkerPostTypes.embedQuestion) {
-        const context = currentAgentInstance?.search(event.data.data);
+        const context = currentAgent?.instance?.search(event.data.data);
         if (!context) {
           return;
         }
@@ -220,7 +220,11 @@ import { Paperclip } from "lucide-react";
         const contextData = context.neighbors
           .map((result) => result.title)
           .join("\n\n");
-        currentAgentInstance?.ask(event.data.payload, contextData, enableSend);
+        currentAgent?.instance?.ask(
+          event.data.payload,
+          contextData,
+          enableSend
+        );
       }
     });
   }

@@ -27,7 +27,7 @@ const getOrCreateFolder = async (directory: string) => {
 const createFile = async (
   handle: FileSystemDirectoryHandle,
   file: string,
-  data: File
+  data: File | Blob
 ) => {
   if (!rootHandle) {
     await getRootOPFS();

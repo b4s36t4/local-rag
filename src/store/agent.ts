@@ -1,13 +1,14 @@
 import { createJSONStorage, persist } from "zustand/middleware";
 import { createStore } from "zustand/vanilla";
-import { ModelInstance } from "../agents/BaseInstance";
+import { ChatPDF, ChatSQL } from "../agents";
 
 interface AgentStore {
-  selectedAgentId: string | null;
-  updateAgent: (agent: string | null, instance: ModelInstance | null) => void;
   serializeData: () => void;
   deserializeData: () => void;
-  selectedAgentInstance?: ModelInstance | null;
+  agent?:
+    | null
+    | ({ id: "chat_pdf" | null } & { instance?: ChatPDF | null })
+    | ({ id: "chat_sql" | null } & { instance?: ChatSQL | null });
 }
 
 const storage = new Map();
@@ -16,18 +17,14 @@ export const agentStore = createStore(
   persist<AgentStore>(
     (set, get) => ({
       deserializeData: () => {},
-      selectedAgentId: null,
-      selectedAgentInstance: null,
       serializeData() {},
-      updateAgent(agent, instance) {
-        set({ selectedAgentId: agent, selectedAgentInstance: instance });
-      },
+      agent: null,
     }),
     {
       name: "agent-store",
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => {
-        delete state.selectedAgentInstance;
+        delete state.agent?.instance;
         return state;
       },
     }
