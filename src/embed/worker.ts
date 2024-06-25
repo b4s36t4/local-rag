@@ -30,6 +30,7 @@ interface EmbedEvent {
     data: string | string[];
     id: string;
     type: "embedDocument" | "embedQuestion" | "initiate";
+    from?: "chat_pdf" | "chat_sql";
   };
 }
 
