@@ -31,6 +31,10 @@ abstract class ModelInstance {
   }
 
   async loadFile(file: File): Promise<void> {}
+
+  async loadSavedFiles(): Promise<File[]> {
+    return [];
+  }
 }
 
 export { ModelInstance };

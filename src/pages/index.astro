@@ -12,12 +12,20 @@ import { Paperclip } from "lucide-react";
 
     <div class="flex flex-col m-2 relative">
       <div
-        class="flex bg-red-100 p-1 controlled-border border-2 border-b-0 rounded-tr-lg rounded-tl-lg"
+        class="flex bg-red-100 p-1 controlled-border border-2 border-b-0 rounded-tr-lg rounded-tl-lg flex-col"
       >
-        <p class="text-sm">
-          Model Selected: <span class="font-bold" id="selectedModel"></span>
-        </p>
-        <button id="loadOrDownload" class="ml-4 p-0 m-0 text-blue-600"></button>
+        <div class="flex">
+          <p class="text-sm">
+            Model Selected: <span class="font-bold" id="selectedModel"></span>
+          </p>
+          <button id="loadOrDownload" class="ml-4 p-0 m-0 text-blue-600"
+          ></button>
+        </div>
+        <div>
+          <p class="text-sm">
+            Agent: <span class="font-bold" id="selectedAgent">None</span>
+          </p>
+        </div>
       </div>
       <div
         class="flex border-b-2 border-l-2 border-r-2 overflow-scroll controlled-border rounded-br-lg rounded-bl-lg"
@@ -98,7 +106,7 @@ import { Paperclip } from "lucide-react";
 
   import { EmbedDB } from "../embed/db";
   import { WorkerPostTypes } from "../const";
-  import { ChatPDF } from "../agents/ChatPDF";
+  import { getAgentInstance } from "../utils/agent";
   import { ModelInstance } from "../agents/BaseInstance";
 
   let model: MLCEngine;
@@ -118,14 +126,20 @@ import { Paperclip } from "lucide-react";
   let currentAgent: string | null = agentStore.getState().selectedAgentId;
   let currentAgentInstance: ModelInstance | null = null;
   const loadAgent = () => {
-    currentAgentInstance = new ChatPDF(model!, embedWorker);
+    currentAgentInstance = getAgentInstance(currentAgent ?? "", {
+      model,
+      worker: embedWorker,
+    });
     agentStore.setState({
       selectedAgentInstance: currentAgentInstance,
     });
   };
 
+  const currentAgentElement = document.getElementById("selectedAgent");
+
   {
     // Keep track of the current live agent
+    currentAgentElement!.innerText = currentAgent ?? "";
 
     console.log(
       "%c[AGENT]",
@@ -137,6 +151,10 @@ import { Paperclip } from "lucide-react";
     agentStore.subscribe((store) => {
       currentAgent = store.selectedAgentId;
       currentAgentInstance = store.selectedAgentInstance!;
+
+      if (!!currentAgent) {
+        currentAgentElement!.innerText = currentAgent;
+      }
     });
   }
 
@@ -194,7 +212,6 @@ import { Paperclip } from "lucide-react";
       }
 
       if (event.data?.type === WorkerPostTypes.embedQuestion) {
-        console.log(event.data, "dataaa...");
         const context = currentAgentInstance?.search(event.data.data);
         if (!context) {
           return;

@@ -4,12 +4,9 @@ import { WorkerPostTypes } from "../const";
 import { WebPDFLoader } from "@langchain/community/document_loaders/web/pdf";
 import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
 import * as pdfjs from "pdfjs-dist";
-import type {
-  ChatCompletionChunk,
-  ChatCompletionMessageParam,
-  MLCEngine,
-} from "@mlc-ai/web-llm";
+import type { ChatCompletionMessageParam, MLCEngine } from "@mlc-ai/web-llm";
 import { chatStore, newMessageStore } from "../store/chat";
+import { getOrCreateFolder, createFile, getFiles } from "../utils/files";
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.mjs`;
 
@@ -19,6 +16,10 @@ class ChatPDF extends ModelInstance {
   splitter: RecursiveCharacterTextSplitter | null = null;
   // loader: WebPDFLoader | null = null
   worker: Worker | null = null;
+
+  cacheHandle: FileSystemDirectoryHandle | null = null;
+
+  static cacheNameStatic: string = "chat_pdf";
 
   constructor(model: MLCEngine, worker: Worker) {
     super("chat_pdf", "chat_pdf");
@@ -34,7 +35,6 @@ class ChatPDF extends ModelInstance {
 
       if (type === WorkerPostTypes.embedDocument) {
         console.log("[Embed] Document embed created");
-        console.log(event.data, "Events");
         if (!event.data.data?.length) {
           console.log(
             "%c[Embed Error]",
@@ -58,6 +58,12 @@ class ChatPDF extends ModelInstance {
 
       return;
     });
+
+    getOrCreateFolder(this.cacheName)
+      .then((cache) => {
+        this.cacheHandle = cache;
+      })
+      .catch((err) => console.log(err, "Root error"));
   }
 
   static getInstance(model: MLCEngine, worker: Worker): ModelInstance {
@@ -78,7 +84,6 @@ class ChatPDF extends ModelInstance {
   }
 
   async ask(question: string, context: string, callback: () => void) {
-    console.log(context, question, "data!!");
     const prompt = `
     
     Give the context below answer my questions.
@@ -159,6 +164,12 @@ class ChatPDF extends ModelInstance {
         type: WorkerPostTypes.embedDocument,
       });
     });
+
+    if (!this.cacheHandle) {
+      return;
+    }
+
+    createFile(this.cacheHandle, file.name, file);
   }
 
   search(question: number[], count?: number): SearchResult {
@@ -168,8 +179,13 @@ class ChatPDF extends ModelInstance {
   saveToCache(): void {
     const serailizedJSON = window.db.serialize();
   }
+
   loadCache(): void {
     throw new Error("Method not implemented.");
+  }
+
+  static async loadSavedFiles() {
+    return await getFiles(this.cacheNameStatic);
   }
 }
 

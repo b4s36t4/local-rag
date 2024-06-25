@@ -38,15 +38,18 @@ const agents = [
       {
         agents.map((agent) => {
           return (
-            <div class="w-[250px] border-2 mx-2 rounded-lg border-blue-200 p-2">
+            <div class="w-[250px] border-2 rounded-lg border-blue-200 p-2 agent-entry">
               <agent.icon className="my-4" size={40} />
               <h2 class="text-lg font-bold">{agent.title}</h2>
               <h4 class="text-base text-gray-600">{agent.description}</h4>
               <div class="my-2 flex space-x-2">
-                <span role="button"  title="View loaded/saved documents">
+                <span
+                  class="view-documents"
+                  title="View loaded/saved documents"
+                >
                   <Eye />
                 </span>
-                <span role="button" title="Reload the data">
+                <span class="reload-vector" title="Reload the data">
                   <RefreshCcw />
                 </span>
                 {agent.upload && (
@@ -73,6 +76,7 @@ const agents = [
   import { agentStore } from "../store/agent";
   import { ModelInstance } from "../agents/BaseInstance";
   import { ChatPDF } from "../agents/ChatPDF";
+  import { getFiles } from "../utils/files";
   const { selectedAgentId, updateAgent } = agentStore.getState();
 
   const buttons = document.querySelectorAll(
@@ -94,6 +98,16 @@ const agents = [
     if (agentId === selectedAgentId) {
       button.innerText = "Disable";
     }
+
+    const agentEntry = button.parentNode;
+
+    const viewButton = agentEntry?.querySelector(".view-documents");
+    const reloadButton = agentEntry?.querySelector(".reload-vector");
+
+    viewButton?.addEventListener("click", () => {
+      console.log("view...", getFiles(agentId ?? ""), "instance");
+    });
+
     button.addEventListener("click", function () {
       if (!agentId) {
         return;
